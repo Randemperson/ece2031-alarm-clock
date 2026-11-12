@@ -1,0 +1,42 @@
+WIDTH=16;
+DEPTH=2048;
+
+ADDRESS_RADIX=HEX;
+DATA_RADIX=HEX;
+
+CONTENT BEGIN
+0000: 9000; -- 	IN     Switches
+0001: 381F; -- 	AND    Bit2         ; keep only switch 2
+0002: 7000; -- 	JZERO  Wait         ; switch 2 is down; keep waiting
+0003: 9000; --     IN     Switches
+0004: 9801; -- 	OUT    LEDs
+0005: 101D; -- 	STORE  Pattern
+0006: 8018; -- 	CALL   Delay
+0007: 081D; -- 	LOAD   Pattern
+0008: 3820; -- 	AND    Bit9         ; bit mask
+0009: 780F; -- 	JNZ    Right        ; bit9 is 1; go right
+000A: 081D; -- 	LOAD   Pattern
+000B: 5001; -- 	SHIFT  1
+000C: 101D; -- 	STORE  Pattern
+000D: 9801; -- 	OUT    LEDs
+000E: 5806; -- 	JUMP   Left
+000F: 8018; -- 	CALL   Delay
+0010: 081D; -- 	LOAD   Pattern
+0011: 381E; -- 	AND    Bit0         ; bit mask
+0012: 7806; -- 	JNZ    Left         ; bit0 is 1; go left
+0013: 081D; -- 	LOAD   Pattern
+0014: 5011; -- 	SHIFT  -1
+0015: 101D; -- 	STORE  Pattern
+0016: 9801; -- 	OUT    LEDs
+0017: 580F; -- 	JUMP   Right
+0018: 9802; -- 	OUT    Timer
+0019: 9002; -- 	IN     Timer
+001A: 37FB; -- 	ADDI   -5
+001B: 6019; -- 	JNEG   WaitingLoop
+001C: 8800; -- 	RETURN
+001D: 0000; -- Pattern:   DW 0
+001E: 0001; -- Bit0:      DW &B0000000001
+001F: 0004; -- Bit2:      DW &B0000000100
+0020: 0200; -- Bit9:      DW &B1000000000
+[0021..07FF] : 0000; -- [empty memory]
+END;
