@@ -1,0 +1,43 @@
+# Quartus generated folders
+db/
+incremental_db/
+output_files/
+simulation/
+greybox_tmp/
+qdb/
+tmp-clearbox/
+
+# Quartus generated files
+*.qws
+*.bak
+*.rpt
+*.summary
+*.smsg
+*.done
+*.jdi
+*.sld
+*.pin
+*.sof
+*.pof
+*.qmsg
+*.ddb
+*.cdf
+*_assignment_defaults.qdf
+*.flock
+c5_pin_model_dump.txt
+
+# Simulator output (ModelSim / Questa)
+work/
+transcript
+*.wlf
+*.vcd
+modelsim.ini
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Tracked on purpose (do not add patterns that catch these):
+#   *.vhd *.qpf *.qsf *.bdf *.bsf *.qip *.sdc *.mif *.asm scasm.cfg *.md
