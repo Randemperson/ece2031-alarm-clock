@@ -1,5 +1,5 @@
 -- clock_divider.vhd
--- Owner: Charles
+-- Owner: Timekeeping Core
 --
 -- Turns the board clock into a one-clock-wide "tick" enable pulse.
 --   fast = '0' : 1 tick per second
