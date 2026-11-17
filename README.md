@@ -22,24 +22,30 @@ SCOMP talks to the peripheral only through `IN` and `OUT`. All timekeeping, comp
 
 | Address | Name | Write | Read |
 |---|---|---|---|
-| BASE+0 | TIME | Set current `HHMM`; seconds reset to 00 | Current `HHMM` |
-| BASE+1 | SECONDS | Set seconds, `0x00` to `0x59` | Current seconds |
+| BASE+0 | TIME | Set current `HHMM` | Current `HHMM` |
+| BASE+1 | SECONDS | Set current seconds | Current seconds |
 | BASE+2 | ALARM | Set alarm `HHMM` | Alarm `HHMM` |
-| BASE+3 | CTRL / STATUS | Control bits (below) | Status bits (below) |
+| BASE+3 | ALARM_SEC | Set alarm seconds | Alarm seconds |
+| BASE+4 | STATUS | TBD | Status bits (below) |
+| BASE+5 | CONTROL | Control bits (below) | Current config |
 
-### CTRL (write to BASE+3)
+This map comes from the group spec doc. The `.vhd` stubs, `alarm_demo.asm`, and the testbench still use the earlier four-register map (TIME, SECONDS, ALARM, CTRL/STATUS at BASE+0 to BASE+3) and need to be updated by their owners.
+
+### CONTROL (write to BASE+5)
 
 | Bit | Name | Type | Meaning |
 |---|---|---|---|
-| 0 | EN | Level | 1 enables the alarm |
-| 1 | FAST | Level | 1 runs time 60 times faster |
-| 2 | ACK | One-time action | Write 1 to stop ringing |
-| 3 | SNOOZE | One-time action | Write 1 to stop ringing and fire again in 5 minutes |
+| 0 | RINGING | Level | 1 = ring |
+| 1 | ACK | One-time action | Write 1 to acknowledge a ringing alarm |
+| 2 | FAST | Level | 1 enables fast mode (time runs 60 times faster) |
+| 3 | CLEAR_ERR | One-time action | Write 1 to clear the invalid time-write error |
 | 15-4 | reserved | | Write 0 |
 
-EN and FAST are levels, so every write to CTRL sets them. To acknowledge without disabling the alarm, write ACK together with the current EN and FAST values (for example `0b0111`).
+RINGING and FAST are levels, so every write to CONTROL sets them. To acknowledge or clear the error without changing them, write ACK or CLEAR_ERR together with their current values.
 
-### STATUS (read from BASE+3)
+### STATUS (read from BASE+4)
+
+The spec doc only says that STATUS reports whether the alarm is ringing. The other bits below are carried over from the earlier draft; EN and SNOOZED have no matching control bit in the new map.
 
 | Bit | Name | Meaning |
 |---|---|---|
@@ -47,7 +53,7 @@ EN and FAST are levels, so every write to CTRL sets them. To acknowledge without
 | 1 | EN | Current enable setting |
 | 2 | FAST | Current fast-mode setting |
 | 3 | SNOOZED | Waiting to fire again after a snooze |
-| 4 | INVALID | An invalid BCD write was ignored |
+| 4 | INVALID | An invalid BCD write was ignored. Cleared by CLEAR_ERR. |
 | 15-5 | | Read as 0 |
 
 ## Team roles
@@ -97,15 +103,18 @@ The port lists in the `.vhd` stubs are the contract between owners. Change a por
 
 ## Decisions pending
 
-- [ ] **BASE address.** Placeholder is `0x0A0`. Must be a multiple of 4.
+- [ ] **BASE address.** Placeholder is `0x0A0`. Must be a multiple of 8, since six addresses need 3 register-select bits.
+- [ ] **CONTROL bit 0.** The spec doc names it RINGING (1 = ring). Is this the alarm enable? The new map has no other enable bit.
+- [ ] **STATUS bits.** Only RINGING is defined in the spec doc. Which other bits exist, and what does a write to STATUS do?
+- [x] **Seconds.** SECONDS is at BASE+1 and the alarm has its own seconds register at BASE+3.
+- [ ] **Alarm seconds and firing.** The behavior spec above fires at `HHMM:00` on the minute tick. With ALARM_SEC the compare must include seconds, which changes `alarm_ctrl` and its ports.
+- [ ] **Consistent TIME and SECONDS reads.** Two `IN`s can straddle a rollover. Snapshot seconds when TIME is read?
 - [ ] **Fast-mode ratio.** 10 MHz does not divide evenly by 60. Accept the small error or choose another ratio?
 - [ ] **Timeout in fast mode.** The 60-second timeout counts simulated seconds, so in fast mode a ring lasts 1 real second. Keep, or time it in real seconds?
 - [ ] **Setting the time while ringing or snoozed.** Keep ringing, stop, or cancel the snooze?
 - [ ] **Changing the alarm or clearing EN while ringing.** Does clearing EN silence the alarm?
-- [ ] **Clearing INVALID.** Cleared on STATUS read, on the next valid write, or by a control bit?
+- [x] **Clearing INVALID.** Cleared by writing the CLEAR_ERR control bit.
 - [ ] **Alarm reset value.** `0x0000` with EN = 0?
-- [ ] **Consistent TIME and SECONDS reads.** Two `IN`s can straddle a rollover. Snapshot seconds when TIME is read?
 - [ ] **Does writing TIME restart the 1 Hz divider** so the first second is a full second?
-- [ ] **Does writing SECONDS need to exist?** Writing TIME already zeroes seconds.
-- [ ] **Snooze.** In or out of scope? Refire by counting 5 minute rollovers, or by adding 5 minutes to the alarm?
+- [ ] **Snooze.** In or out of scope? The new CONTROL map has no SNOOZE bit. Refire by counting 5 minute rollovers, or by adding 5 minutes to the alarm?
 - [ ] **RINGING output pin.** LED only, or a buzzer on a GPIO pin?
