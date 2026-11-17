@@ -1,1 +1,43 @@
+WIDTH=16;
+DEPTH=2048;
+
+ADDRESS_RADIX=HEX;
+DATA_RADIX=HEX;
+
+CONTENT BEGIN
+0000: 0817; --     LOAD   Time0659
+0001: 98A0; --     OUT    AC_Time
+0002: 0818; --     LOAD   Time0700
+0003: 98A2; --     OUT    AC_Alarm
+0004: 0819; --     LOAD   CtrlEnFast
+0005: 98A3; --     OUT    AC_Ctrl
+0006: 90A0; --     IN     AC_Time
+0007: 9804; --     OUT    Hex0
+0008: 90A1; --     IN     AC_Sec
+0009: 9805; --     OUT    Hex1
+000A: 90A3; --     IN     AC_Ctrl
+000B: 381C; --     AND    StRinging
+000C: 7006; --     JZERO  Poll
+000D: 081F; --     LOAD   AllLEDs
+000E: 9801; --     OUT    LEDs
+000F: 9000; --     IN     Switches
+0010: 3820; --     AND    SwitchMask
+0011: 700F; --     JZERO  WaitForSwitch
+0012: 081A; --     LOAD   CtrlAck
+0013: 98A3; --     OUT    AC_Ctrl
+0014: 1800; --     LOADI  0
+0015: 9801; --     OUT    LEDs
+0016: 5816; --     JUMP   Done
+0017: 0659; -- Time0659:    DW &amp;H0659
+0018: 0700; -- Time0700:    DW &amp;H0700
+0019: 0003; -- CtrlEnFast:  DW &amp;B0011
+001A: 0007; -- CtrlAck:     DW &amp;B0111
+001B: 000B; -- CtrlSnooze:  DW &amp;B1011
+001C: 0001; -- StRinging:   DW &amp;B00001
+001D: 0008; -- StSnoozed:   DW &amp;B01000
+001E: 0010; -- StInvalid:   DW &amp;B10000
+001F: 03FF; -- AllLEDs:     DW &amp;B1111111111
+0020: 0001; -- SwitchMask:  DW &amp;H0001
+[0021..07FF] : 0000; -- [empty memory]
+END;
 
