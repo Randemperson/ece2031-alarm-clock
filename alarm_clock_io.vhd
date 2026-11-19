@@ -4,27 +4,35 @@
 -- The SCOMP-facing alarm clock peripheral. This is the block that goes on the
 -- top-level schematic. Bus ports copy TIMER.vhd from the Lab 8 base project.
 --
--- Register map (final). BASE = 0x070; registers 0x070-0x07E; 0x07F unused.
+-- Register map (final). BASE = 0x070; registers 0x070-0x07F (all 16).
 --
 --   0x070  TIME            HHMM (BCD)
 --   0x071  SECONDS         00SS (BCD)
 --   0x072  GLOBAL CONTROL  write: b0 EN, b1 RESET, b2 FAST, b3 CLEAR_ERR
---                          read:  b0 EN, b2 FAST (RESET, CLEAR_ERR read 0)
---   0x073  ALARM SELECT    b2-0 ALARM_SEL, 0-4 (picks the alarm 0x074 refers to)
---   0x074  ALARM SETTINGS  write: b0 EN, b1 RESET (for the selected alarm)
---                          read:  b0 EN, b1 RINGING (selected alarm),
---                                 b2 ANY_RINGING, b3 ERROR
---   0x075  ALARM 0 HHMM    0x076  ALARM 0 SECONDS
---   0x077  ALARM 1 HHMM    0x078  ALARM 1 SECONDS
---   0x079  ALARM 2 HHMM    0x07A  ALARM 2 SECONDS
---   0x07B  ALARM 3 HHMM    0x07C  ALARM 3 SECONDS
---   0x07D  ALARM 4 HHMM    0x07E  ALARM 4 SECONDS
+--                          read:  b0 EN, b1 ANY_RINGING, b2 FAST, b3 ERROR
+--   0x073  ALARM SETTINGS  one bit pair per alarm, alarm n (1-6) at bits
+--                          2(n-1) and 2(n-1)+1:
+--                          write: b[2(n-1)] EN, b[2(n-1)+1] RESET
+--                          read:  b[2(n-1)] EN, b[2(n-1)+1] RINGING
+--   0x074  ALARM 1 HHMM    0x075  ALARM 1 SECONDS
+--   0x076  ALARM 2 HHMM    0x077  ALARM 2 SECONDS
+--   0x078  ALARM 3 HHMM    0x079  ALARM 3 SECONDS
+--   0x07A  ALARM 4 HHMM    0x07B  ALARM 4 SECONDS
+--   0x07C  ALARM 5 HHMM    0x07D  ALARM 5 SECONDS
+--   0x07E  ALARM 6 HHMM    0x07F  ALARM 6 SECONDS
 --
---   EN and FAST are levels: every write sets them. RESET and CLEAR_ERR are
---   one-time actions. Global RESET stops every ringing alarm; the Alarm
---   Settings RESET stops only the selected one. An alarm can fire only when
---   both the global EN and its own EN are 1.
---   Invalid writes (bad BCD time, ALARM_SEL above 4) are ignored and set ERROR.
+--   EN bits and FAST are levels: every write sets them. RESET and CLEAR_ERR
+--   are one-time actions. Global RESET stops every ringing alarm; a RESET bit
+--   in Alarm Settings stops only that alarm. An alarm can fire only when both
+--   the global EN and its own EN are 1.
+--   Invalid BCD time writes are ignored and set ERROR.
+--
+--   Read-modify-write warning: reading Alarm Settings returns RINGING in the
+--   RESET positions. To reset one alarm without touching the others, a
+--   program must AND what it read with 0x0555 (EN bits only) before ORing in
+--   the RESET bit, or it resets every alarm that is ringing.
+--
+-- Inside this file alarms are numbered 0-5 (alarm 1 = index 0).
 --
 -- Bus timing, taken from SCOMP.vhd (assumes CLOCK is the same clk_10MHz that
 -- SCOMP runs on):
@@ -59,30 +67,25 @@ end alarm_clock_io;
 
 architecture rtl of alarm_clock_io is
 
-	constant NUM_ALARMS : natural := 5;
-	constant SEL_BITS   : natural := 3;  -- ALARM_SEL width (values 0-4 used)
+	constant NUM_ALARMS : natural := 6;
 
 	-- Register numbers: the low 4 bits of the IO address.
 	constant R_TIME      : natural := 0;
 	constant R_SECONDS   : natural := 1;
 	constant R_GCTRL     : natural := 2;
-	constant R_ALARM_SEL : natural := 3;
-	constant R_ALARM_SET : natural := 4;
-	constant R_ALARM0    : natural := 5;   -- alarm i HHMM at 5+2i, seconds at 6+2i
-	constant R_LAST      : natural := R_ALARM0 + 2*NUM_ALARMS - 1;  -- 14 (0x07E)
+	constant R_ALARM_SET : natural := 3;
+	constant R_ALARM0    : natural := 4;   -- alarm index i: HHMM at 4+2i, seconds at 5+2i
+	constant R_LAST      : natural := R_ALARM0 + 2*NUM_ALARMS - 1;  -- 15 (0x07F)
 
 	-- GLOBAL CONTROL bit positions.
-	constant G_EN        : natural := 0;
-	constant G_RESET     : natural := 1;
-	constant G_FAST      : natural := 2;
-	constant G_CLEAR_ERR : natural := 3;
+	constant G_EN          : natural := 0;  -- read and write
+	constant G_RESET       : natural := 1;  -- write
+	constant G_ANY_RINGING : natural := 1;  -- read
+	constant G_FAST        : natural := 2;  -- read and write
+	constant G_CLEAR_ERR   : natural := 3;  -- write
+	constant G_ERROR       : natural := 3;  -- read
 
-	-- ALARM SETTINGS bit positions.
-	constant S_EN          : natural := 0;  -- read and write
-	constant S_RESET       : natural := 1;  -- write
-	constant S_RINGING     : natural := 1;  -- read
-	constant S_ANY_RINGING : natural := 2;  -- read
-	constant S_ERROR       : natural := 3;  -- read
+	-- ALARM SETTINGS: alarm index i uses bit 2i (EN) and bit 2i+1 (RESET / RINGING).
 
 	-- True when d is a valid 24-hour BCD time, 0x0000 to 0x2359.
 	function valid_hhmm(d : std_logic_vector(15 downto 0)) return boolean is
@@ -102,12 +105,6 @@ architecture rtl of alarm_clock_io is
 		variable s_ones : unsigned(3 downto 0) := unsigned(d(3 downto 0));
 	begin
 		return d(15 downto 8) = x"00" and s_tens <= 5 and s_ones <= 9;
-	end function;
-
-	-- True when d names an existing alarm, 0 to NUM_ALARMS-1.
-	function valid_sel(d : std_logic_vector(15 downto 0)) return boolean is
-	begin
-		return unsigned(d) < NUM_ALARMS;
 	end function;
 
 	-- Which registers belong to the per-alarm block, and which alarm.
@@ -141,7 +138,7 @@ architecture rtl of alarm_clock_io is
 	signal load_hhmm         : std_logic;
 	signal load_sec          : std_logic;
 
-	-- Per-alarm connections (index = alarm number).
+	-- Per-alarm connections (index = alarm number - 1).
 	signal load_alarm     : std_logic_vector(0 to NUM_ALARMS-1);
 	signal load_alarm_sec : std_logic_vector(0 to NUM_ALARMS-1);
 	signal ack_a          : std_logic_vector(0 to NUM_ALARMS-1);
@@ -156,8 +153,6 @@ architecture rtl of alarm_clock_io is
 	signal gen_reg        : std_logic;                               -- global EN
 	signal fast_reg       : std_logic;
 	signal error_reg      : std_logic;
-	signal alarm_sel_reg  : std_logic_vector(SEL_BITS-1 downto 0);
-	signal sel_n          : natural range 0 to 2**SEL_BITS - 1;
 	signal alarm_en       : std_logic_vector(0 to NUM_ALARMS-1);     -- per-alarm EN
 
 	signal global_reset   : std_logic;
@@ -177,8 +172,6 @@ begin
 	wr       <= selected and IO_WRITE;
 	rd       <= selected and IO_READ;
 
-	sel_n    <= to_integer(unsigned(alarm_sel_reg));
-
 	-- ------------------------------------------------------------------
 	-- Writes: one-cycle pulses to the sub-modules
 	-- ------------------------------------------------------------------
@@ -192,11 +185,10 @@ begin
 
 	global_reset <= '1' when wr = '1' and reg_n = R_GCTRL and IO_DATA(G_RESET) = '1' else '0';
 
-	-- Any write that will be ignored because its value is invalid.
+	-- Any time write that will be ignored because its value is invalid.
 	write_invalid <= '1' when wr = '1' and (
 	                     ((reg_n = R_TIME    or is_alarm_hhmm(reg_n)) and not valid_hhmm(IO_DATA)) or
-	                     ((reg_n = R_SECONDS or is_alarm_sec(reg_n))  and not valid_sec(IO_DATA))  or
-	                     (reg_n = R_ALARM_SEL and not valid_sel(IO_DATA))
+	                     ((reg_n = R_SECONDS or is_alarm_sec(reg_n))  and not valid_sec(IO_DATA))
 	                 ) else '0';
 
 	-- ------------------------------------------------------------------
@@ -205,11 +197,10 @@ begin
 	process (CLOCK, RESETN)
 	begin
 		if RESETN = '0' then
-			gen_reg       <= '0';
-			fast_reg      <= '0';
-			error_reg     <= '0';
-			alarm_sel_reg <= (others => '0');
-			alarm_en      <= (others => '0');
+			gen_reg   <= '0';
+			fast_reg  <= '0';
+			error_reg <= '0';
+			alarm_en  <= (others => '0');
 		elsif rising_edge(CLOCK) then
 			if write_invalid = '1' then
 				error_reg <= '1';
@@ -227,19 +218,15 @@ begin
 							error_reg <= '0';
 						end if;
 
-					when R_ALARM_SEL =>
-						if valid_sel(IO_DATA) then
-							alarm_sel_reg <= IO_DATA(SEL_BITS-1 downto 0);
-						end if;
-
-					-- EN of the selected alarm. RESET is the ack pulse below.
+					-- Every alarm's EN is a level: one write sets all six.
+					-- The RESET bits are the ack pulses below.
 					when R_ALARM_SET =>
-						if sel_n < NUM_ALARMS then
-							alarm_en(sel_n) <= IO_DATA(S_EN);
-						end if;
+						for i in 0 to NUM_ALARMS-1 loop
+							alarm_en(i) <= IO_DATA(2*i);
+						end loop;
 
 					-- TIME, SECONDS and the alarm times are stored in the
-					-- sub-modules (load pulses). 0x07F is unused.
+					-- sub-modules (load pulses).
 					when others =>
 						null;
 
@@ -253,24 +240,23 @@ begin
 	-- ------------------------------------------------------------------
 	any_ring <= '0' when ring_a = (ring_a'range => '0') else '1';
 
-	process (reg_n, hhmm, seconds, gen_reg, fast_reg, alarm_sel_reg, sel_n,
-	         alarm_en, ring_a, any_ring, error_reg, alarm_hhmm_a, alarm_sec_a)
+	process (reg_n, hhmm, seconds, gen_reg, fast_reg, alarm_en, ring_a, any_ring,
+	         error_reg, alarm_hhmm_a, alarm_sec_a)
 	begin
 		read_data <= (others => '0');
 		case reg_n is
 			when R_TIME      => read_data <= hhmm;
 			when R_SECONDS   => read_data(7 downto 0) <= seconds;
 			when R_GCTRL     =>
-				read_data(G_EN)   <= gen_reg;
-				read_data(G_FAST) <= fast_reg;
-			when R_ALARM_SEL => read_data(SEL_BITS-1 downto 0) <= alarm_sel_reg;
+				read_data(G_EN)          <= gen_reg;
+				read_data(G_ANY_RINGING) <= any_ring;
+				read_data(G_FAST)        <= fast_reg;
+				read_data(G_ERROR)       <= error_reg;
 			when R_ALARM_SET =>
-				if sel_n < NUM_ALARMS then
-					read_data(S_EN)      <= alarm_en(sel_n);
-					read_data(S_RINGING) <= ring_a(sel_n);
-				end if;
-				read_data(S_ANY_RINGING) <= any_ring;
-				read_data(S_ERROR)       <= error_reg;
+				for i in 0 to NUM_ALARMS-1 loop
+					read_data(2*i)     <= alarm_en(i);
+					read_data(2*i + 1) <= ring_a(i);
+				end loop;
 			when others      =>
 				if is_alarm_hhmm(reg_n) then
 					read_data <= alarm_hhmm_a(alarm_index(reg_n));
@@ -281,9 +267,9 @@ begin
 	end process;
 
 	-- Drive the bus only while SCOMP is reading one of our registers
-	-- (0x070-0x07E). 0x07F is left free. At every other time the peripheral
-	-- must be disconnected ('Z'), or it would fight with SCOMP and the other
-	-- devices on the shared bus.
+	-- (all of 0x070-0x07F). At every other time the peripheral must be
+	-- disconnected ('Z'), or it would fight with SCOMP and the other devices
+	-- on the shared bus.
 	drive_bus <= '1' when rd = '1' and reg_n <= R_LAST else '0';
 	IO_DATA   <= read_data when drive_bus = '1' else (others => 'Z');
 
@@ -306,7 +292,7 @@ begin
 			hhmm => hhmm, seconds => seconds, minute_tick => minute_tick
 		);
 
-	-- One alarm_ctrl per alarm.
+	-- One alarm_ctrl per alarm (index i = alarm i+1).
 	g_alarms : for i in 0 to NUM_ALARMS-1 generate
 
 		load_alarm(i)     <= '1' when wr = '1' and reg_n = R_ALARM0 + 2*i
@@ -314,10 +300,10 @@ begin
 		load_alarm_sec(i) <= '1' when wr = '1' and reg_n = R_ALARM0 + 2*i + 1
 		                                 and valid_sec(IO_DATA) else '0';
 
-		-- Stopped by the global RESET, or by its own RESET while selected.
+		-- Stopped by the global RESET, or by its own RESET bit.
 		ack_a(i) <= '1' when global_reset = '1'
-		                  or (wr = '1' and reg_n = R_ALARM_SET and sel_n = i
-		                      and IO_DATA(S_RESET) = '1') else '0';
+		                  or (wr = '1' and reg_n = R_ALARM_SET
+		                      and IO_DATA(2*i + 1) = '1') else '0';
 
 		-- Armed only when both the global EN and its own EN are set.
 		en_a(i)  <= gen_reg and alarm_en(i);

@@ -13,29 +13,29 @@ CONTENT
             000 : 081D;  -- LOAD   Time0659
             001 : 9870;  -- OUT    AC_Time          ; also resets seconds to 00
             002 : 081E;  -- LOAD   Time0700
-            003 : 9875;  -- OUT    AC_Alarm0        ; alarm 0 hours/minutes
+            003 : 9874;  -- OUT    AC_Alarm1        ; alarm 1 hours/minutes
             004 : 1800;  -- LOADI  0
-            005 : 9876;  -- OUT    AC_Alarm0Sec     ; alarm 0 seconds = 00
-            006 : 1800;  -- LOADI  0
-            007 : 9873;  -- OUT    AC_AlarmSel      ; select alarm 0
-            008 : 0822;  -- LOAD   SetEn
-            009 : 9874;  -- OUT    AC_AlarmSet      ; enable alarm 0
-            00A : 081F;  -- LOAD   GEnFast
-            00B : 9872;  -- OUT    AC_GCtrl         ; global enable + fast mode
-            00C : 9070;  -- IN     AC_Time
-            00D : 9804;  -- OUT    Hex0
-            00E : 9071;  -- IN     AC_Sec
-            00F : 9805;  -- OUT    Hex1
-            010 : 9074;  -- IN     AC_AlarmSet      ; read side of Alarm Settings is the status
-            011 : 3825;  -- AND    StAnyRinging
-            012 : 700C;  -- JZERO  Poll
-            013 : 0827;  -- LOAD   AllLEDs
-            014 : 9801;  -- OUT    LEDs
-            015 : 9000;  -- IN     Switches
-            016 : 3828;  -- AND    SwitchMask
-            017 : 7015;  -- JZERO  WaitForSwitch
-            018 : 0820;  -- LOAD   GResetKeep       ; RESET all alarms, keep EN and FAST set
-            019 : 9872;  -- OUT    AC_GCtrl
+            005 : 9875;  -- OUT    AC_Alarm1Sec     ; alarm 1 seconds = 00
+            006 : 0824;  -- LOAD   SetEnA1
+            007 : 9873;  -- OUT    AC_AlarmSet      ; enable alarm 1 (all other alarms off)
+            008 : 081F;  -- LOAD   GEnFast
+            009 : 9872;  -- OUT    AC_GCtrl         ; global enable + fast mode
+            00A : 9070;  -- IN     AC_Time
+            00B : 9804;  -- OUT    Hex0
+            00C : 9071;  -- IN     AC_Sec
+            00D : 9805;  -- OUT    Hex1
+            00E : 9072;  -- IN     AC_GCtrl         ; read side of Global Control has ANY_RINGING
+            00F : 3822;  -- AND    GAnyRinging
+            010 : 700A;  -- JZERO  Poll
+            011 : 0827;  -- LOAD   AllLEDs
+            012 : 9801;  -- OUT    LEDs
+            013 : 9000;  -- IN     Switches
+            014 : 3828;  -- AND    SwitchMask
+            015 : 7013;  -- JZERO  WaitForSwitch
+            016 : 9073;  -- IN     AC_AlarmSet
+            017 : 3826;  -- AND    EnMask
+            018 : 4025;  -- OR     ResetA1
+            019 : 9873;  -- OUT    AC_AlarmSet
             01A : 1800;  -- LOADI  0
             01B : 9801;  -- OUT    LEDs
             01C : 581C;  -- JUMP   Done
@@ -44,11 +44,11 @@ CONTENT
             01F : 0005;  -- GEnFast:     DW &B0101
             020 : 0007;  -- GResetKeep:  DW &B0111
             021 : 000D;  -- GClearKeep:  DW &B1101
-            022 : 0001;  -- SetEn:       DW &B01
-            023 : 0003;  -- SetResetEn:  DW &B11
-            024 : 0002;  -- StRinging:   DW &B0010
-            025 : 0004;  -- StAnyRinging: DW &B0100
-            026 : 0008;  -- StError:     DW &B1000
+            022 : 0002;  -- GAnyRinging: DW &B0010
+            023 : 0008;  -- GError:      DW &B1000
+            024 : 0001;  -- SetEnA1:     DW &H0001
+            025 : 0002;  -- ResetA1:     DW &H0002
+            026 : 0555;  -- EnMask:      DW &H0555      ; all six EN bits
             027 : 03FF;  -- AllLEDs:     DW &B1111111111
             028 : 0001;  -- SwitchMask:  DW &H0001
 END;

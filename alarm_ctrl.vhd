@@ -3,7 +3,7 @@
 --
 -- ONE alarm: holds the alarm time (HHMM and seconds), compares it against the
 -- current time, and runs the ringing state machine. alarm_clock_io creates
--- one copy of this module per alarm (5 alarms), so this file only ever deals
+-- one copy of this module per alarm (6 alarms), so this file only ever deals
 -- with a single alarm.
 --
 --   S_IDLE    --(en = '1' and time ticks into hhmm:seconds = alarm)-->  S_RINGING
@@ -12,9 +12,9 @@
 --   S_SNOOZED --(5 minute rollovers)-->                                  S_RINGING
 --   any state --(en = '0')-->                                            S_IDLE
 --
--- en  = global EN (Global Control b0) AND this alarm's EN (Alarm Settings b0).
--- ack = global RESET (Global Control b1) OR this alarm's RESET (Alarm Settings
---       b1 while this alarm is selected).
+-- en  = global EN (Global Control b0) AND this alarm's EN bit in Alarm Settings.
+-- ack = global RESET (Global Control b1) OR this alarm's RESET bit in Alarm
+--       Settings.
 
 library ieee;
 use ieee.std_logic_1164.all;

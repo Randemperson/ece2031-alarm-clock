@@ -31,7 +31,7 @@ def tag(x,y,n):
 # Peripheral container
 ax.add_patch(FancyBboxPatch((46,16),110,58,boxstyle="round,pad=0,rounding_size=2",fc=LT,ec=MID,lw=2,ls=(0,(6,4))))
 ax.text(49,70.5,"alarm_clock_io",fontsize=19,family=T,color=DK,weight="bold",va="center")
-ax.text(49,67,"SCOMP peripheral  ·  I/O addresses 0x070 – 0x07E",fontsize=12.5,family=S,color=DK,va="center")
+ax.text(49,67,"SCOMP peripheral  ·  I/O addresses 0x070 – 0x07F",fontsize=12.5,family=S,color=DK,va="center")
 
 # SCOMP
 box(4,34,28,26,"SCOMP","CPU, 10 MHz clock\nruns alarm_demo.asm\nIN / OUT instructions",ts=20)
@@ -42,7 +42,7 @@ box(4,8,28,14,"Board I/O","Switches · LEDs · 7-seg\n0x000 – 0x005",ts=15)
 # Bus: SCOMP <-> alarm peripheral
 arrow((32,47),(50,47),both=True)
 ax.text(41,49.5,"I/O bus",fontsize=13,family=T,color=DK,ha="center",weight="bold")
-ax.text(39.5,44.5,"0x070–0x07E",fontsize=10.5,family=S,color=GR,ha="center",va="center")
+ax.text(39.5,44.5,"0x070–0x07F",fontsize=10.5,family=S,color=GR,ha="center",va="center")
 # SCOMP <-> board I/O (SCOMP drives LEDs / 7-seg itself)
 arrow((18,34),(18,22),both=True)
 ax.text(20,28,"IN / OUT",fontsize=11.5,family=S,color=GR,va="center")
@@ -54,7 +54,7 @@ box(88,52,28,13,"Clock Divider","10 MHz → 1 Hz tick\n×60 in fast mode",ts=15)
 tag(90.3,62.6,"1")
 box(88,26,28,17,"Time Counter","BCD  HH:MM:SS\nrollover 23:59:59 → 00:00:00",ts=15)
 tag(90.3,40.6,"1")
-box(124,26,28,17,"Alarm Logic ×5","compare time = alarm\nring state machine",ts=15)
+box(124,26,28,17,"Alarm Logic ×6","compare time = alarm\nring state machine",ts=15)
 tag(126.3,40.6,"2")
 
 arrow((76,56),(88,58.5),"FAST",lp=(81.5,59.5))
