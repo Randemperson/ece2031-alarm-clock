@@ -1,57 +1,92 @@
 # Programmable Alarm Clock Peripheral for SCOMP
 
-ECE 2031 final project. A time-based peripheral for SCOMP that keeps the time of day in hardware and lets a SCOMP program schedule an alarm.
+ECE 2031 final project. A time-based peripheral for SCOMP that keeps the time of day in hardware and lets a SCOMP program schedule up to six alarms.
 
 SCOMP talks to the peripheral only through `IN` and `OUT`. All timekeeping, comparison, and alarm logic lives in VHDL. SCOMP programs write registers and read status; they never count time themselves.
 
-> **Status: draft.** The spec and register map below are defaults until the group finalizes the spec doc. Anything undecided is listed under [Decisions pending](#decisions-pending) and marked `TODO` in the source.
+> **Status:** the register map below is **final**. All new work must use it. Behavior details still undecided are listed under [Decisions pending](#decisions-pending) and marked `TODO` in the source.
 
-## Behavior spec (draft)
+## Behavior spec
 
-- **Time format.** BCD, 24-hour. `HHMM` fits in one 16-bit word: `0x1730` is 17:30, `0x0000` is midnight, `0x1200` is noon. Seconds are tracked in hardware and read from a separate register.
+- **Time format.** BCD, 24-hour. `HHMM` fits in one 16-bit word: `0x1730` is 17:30, `0x0000` is midnight, `0x1200` is noon. Seconds are a separate register, `00SS`.
 - **Rollover.** 23:59:59 goes to 00:00:00.
 - **Fast mode.** A control bit makes time run 60 times faster (one simulated minute per real second) for demos.
-- **Firing.** When the alarm is enabled and the time *ticks into* `HHMM:00` matching the alarm, the alarm starts ringing. Writing the time directly to the alarm time does not fire it.
-- **Stopping.** Ringing stops when SCOMP writes 1 to STATUS bit 0 (RESET), or by itself after 60 seconds.
-- **Snooze (extension).** Stops the ringing and fires again 5 minutes later.
-- **Invalid writes.** A write that is not valid BCD time (`0x2500`, `0x1A30`, `0x1260`) is ignored and sets the ERROR status bit.
+- **Alarms.** Six independent alarms (numbered 1-6), each with its own `HHMM`, seconds, and enable.
+- **Firing.** An alarm starts ringing when the global EN and its own EN are both 1 and the time *ticks into* its `HH:MM:SS`. Writing the time directly to the alarm time does not fire it.
+- **Stopping.** An alarm's RESET bit in Alarm Settings stops that alarm; the Global Control RESET bit stops all of them. A ringing alarm also stops by itself after 60 seconds.
+- **Invalid writes.** A time write that is not valid BCD (`0x2500`, `0x1A30`, `0x1260`, seconds `0x60`) is ignored and sets the ERROR bit.
 
 ## Register map
 
-`BASE` is `0x070`. The course only allows peripheral addresses `0x070` to `0x07F`, and the base must be a multiple of 8 because the low 3 address bits select the register. The peripheral uses `0x070` to `0x077`; `0x078` to `0x07F` are free.
+`BASE` is `0x070`. The course only allows peripheral addresses `0x070` to `0x07F`, and the peripheral uses all 16 of them. The low 4 address bits select the register, so `BASE` must be a multiple of 16.
 
 | Address | `.asm` (decimal) | Name | Write | Read |
 |---|---|---|---|---|
-| `0x070` BASE+0 | 112 | TIME | Set current `HHMM` | Current `HHMM` |
-| `0x071` BASE+1 | 113 | SECONDS | Set current seconds | Current seconds |
-| `0x072` BASE+2 | 114 | ALARM | Set alarm `HHMM` | Alarm `HHMM` |
-| `0x073` BASE+3 | 115 | ALARM_SEC | Set alarm seconds | Alarm seconds |
-| `0x074` BASE+4 | 116 | STATUS | One-time actions (below) | Status bits (below) |
-| `0x075` BASE+5 | 117 | CONTROL | Control bits (below) | Current config |
-| `0x076` BASE+6 | 118 | ALARM_SEL | Select the alarm to configure | Selected alarm |
-| `0x077` BASE+7 | 119 | ALARM_SET | TBD (ignored for now) | TBD (reads 0) |
+| `0x070` | 112 | Current Hours/Minutes | Set current `HHMM` (seconds reset to 00) | Current `HHMM` |
+| `0x071` | 113 | Current Seconds | Set current seconds | Current seconds |
+| `0x072` | 114 | Global Control | Control bits (below) | EN, FAST, plus status (below) |
+| `0x073` | 115 | Alarm Settings | EN and RESET for every alarm (below) | Every alarm's EN and RINGING (below) |
+| `0x074` | 116 | Alarm 1 Hours/Minutes | Set alarm 1 `HHMM` | Alarm 1 `HHMM` |
+| `0x075` | 117 | Alarm 1 Seconds | Set alarm 1 seconds | Alarm 1 seconds |
+| `0x076` | 118 | Alarm 2 Hours/Minutes | Set alarm 2 `HHMM` | Alarm 2 `HHMM` |
+| `0x077` | 119 | Alarm 2 Seconds | Set alarm 2 seconds | Alarm 2 seconds |
+| `0x078` | 120 | Alarm 3 Hours/Minutes | Set alarm 3 `HHMM` | Alarm 3 `HHMM` |
+| `0x079` | 121 | Alarm 3 Seconds | Set alarm 3 seconds | Alarm 3 seconds |
+| `0x07A` | 122 | Alarm 4 Hours/Minutes | Set alarm 4 `HHMM` | Alarm 4 `HHMM` |
+| `0x07B` | 123 | Alarm 4 Seconds | Set alarm 4 seconds | Alarm 4 seconds |
+| `0x07C` | 124 | Alarm 5 Hours/Minutes | Set alarm 5 `HHMM` | Alarm 5 `HHMM` |
+| `0x07D` | 125 | Alarm 5 Seconds | Set alarm 5 seconds | Alarm 5 seconds |
+| `0x07E` | 126 | Alarm 6 Hours/Minutes | Set alarm 6 `HHMM` | Alarm 6 `HHMM` |
+| `0x07F` | 127 | Alarm 6 Seconds | Set alarm 6 seconds | Alarm 6 seconds |
 
-The bit-level map is in `register_map.xlsx`. `alarm_clock_io.vhd` and `alarm_demo.asm` use this map. The testbench still uses the old four-register map at `0x0A0` and needs updating by its owner.
+Alarm `n` (1-6) is at `0x074 + 2(n-1)` (hours/minutes) and `0x075 + 2(n-1)` (seconds). The bit-level map is in `register_map.xlsx`.
 
-### STATUS (BASE+4)
+### Data formats
 
-| Bit | Read | Write |
+| Register | B15-B12 | B11-B8 | B7-B4 | B3-B0 |
+|---|---|---|---|---|
+| Hours/Minutes (current and alarms) | `HR_TENS` | `HR_ONES` | `MIN_TENS` | `MIN_ONES` |
+| Seconds (current and alarms) | 0 | 0 | `SEC_TENS` | `SEC_ONES` |
+
+### Global Control (`0x072`)
+
+| Bit | Write | Read |
 |---|---|---|
-| 0 | RINGING: alarm is ringing now | RESET: 1 stops a ringing alarm |
-| 1 | ERROR: an invalid BCD write was ignored | CLEAR_ERR: 1 clears ERROR |
-| 15-2 | Read as 0 | Write 0 |
+| 0 | EN (level): 1 = alarms enabled globally | Current EN |
+| 1 | RESET (one-time): 1 = stop every ringing alarm | ANY_RINGING: at least one alarm is ringing |
+| 2 | FAST (level): 1 = time runs 60 times faster | Current FAST |
+| 3 | CLEAR_ERR (one-time): 1 = clear ERROR | ERROR: an invalid time write was ignored |
+| 15-4 | Write 0 | 0 |
 
-### CONTROL (BASE+5)
+EN and FAST are levels, so every write sets them. To reset or clear the error without changing them, include their current values (for example `0b0111` = RESET with EN and FAST kept on).
 
-| Bit | Name | Meaning |
-|---|---|---|
-| 0 | EN | Global enable (level) |
-| 1 | FAST | 1 enables fast mode, time runs 60 times faster (level) |
-| 15-2 | reserved | Write 0, read as 0 |
+### Alarm Settings (`0x073`)
 
-### ALARM_SEL (BASE+6)
+One pair of bits per alarm. Alarm `n` uses bit `2(n-1)` and bit `2(n-1)+1`:
 
-Bits 1-0 pick which alarm BASE+2, BASE+3 and BASE+7 refer to (up to 4 alarms). `alarm_ctrl` holds only one alarm so far, so the selection is stored and read back but has no effect yet.
+| Bits | Alarm | Write | Read |
+|---|---|---|---|
+| 1-0 | 1 | b0 EN, b1 RESET | b0 EN, b1 RINGING |
+| 3-2 | 2 | b2 EN, b3 RESET | b2 EN, b3 RINGING |
+| 5-4 | 3 | b4 EN, b5 RESET | b4 EN, b5 RINGING |
+| 7-6 | 4 | b6 EN, b7 RESET | b6 EN, b7 RINGING |
+| 9-8 | 5 | b8 EN, b9 RESET | b8 EN, b9 RINGING |
+| 11-10 | 6 | b10 EN, b11 RESET | b10 EN, b11 RINGING |
+| 15-12 | | Write 0 | 0 |
+
+- **EN** is a level: every write sets all six enables at once.
+- **RESET** is a one-time action: 1 stops that alarm. On a read, the same bit shows whether that alarm is ringing.
+
+**Resetting one alarm.** Because a write sets every EN bit, write back the current enables along with the RESET bit. Reading the register returns RINGING in the RESET positions, so mask to the EN bits (`AND 0x0555`) before adding the RESET bit; otherwise every ringing alarm is reset too:
+
+```
+IN   AlarmSettings
+AND  EnMask      ; 0x0555
+OR   ResetA1     ; 0x0002 = alarm 1 RESET
+OUT  AlarmSettings
+```
+
+The `RINGING` output pin of the peripheral follows ANY_RINGING.
 
 ## Team roles
 
@@ -71,8 +106,8 @@ Only the owner edits a file. If you need a change in someone else's file, open a
 |---|---|---|
 | `clock_divider.vhd` | 1 Timekeeping | Board clock to a one-cycle `tick` enable (1 Hz, or 60 Hz in fast mode) |
 | `time_counter.vhd` | 1 Timekeeping | BCD HH:MM:SS counter with load inputs and `minute_tick` |
-| `alarm_ctrl.vhd` | 2 Alarm | Alarm register, compare, ringing state machine |
-| `alarm_clock_io.vhd` | 3 Bus | The peripheral itself: address decode, write latching, read mux, connects the three modules above |
+| `alarm_ctrl.vhd` | 2 Alarm | One alarm: alarm `HHMM` and seconds registers, compare, ringing state machine |
+| `alarm_clock_io.vhd` | 3 Bus | The peripheral itself: address decode, write latching, read mux, connects the modules above (one `alarm_ctrl` per alarm) |
 | `*.bdf`, `*.qsf`, `*.qpf`, `SCOMP.vhd` | 3 Bus | Top-level schematic, pin and project settings, base project files |
 | `alarm_demo.asm`, `*.mif` | 4 Software | Demo programs and their assembled output |
 | `alarm_clock_tb.vhd` | 5 Verification | Simulation testbench (not part of synthesis) |
@@ -100,19 +135,17 @@ The port lists in the `.vhd` stubs are the contract between owners. Change a por
 
 ## Decisions pending
 
-- [x] **BASE address.** `0x070`. The course allows only `0x070` to `0x07F`.
-- [x] **CONTROL bit 0.** Global enable (EN). Bit 1 is FAST.
-- [x] **STATUS bits.** Bit 0 RINGING (write 1 = reset the alarm), bit 1 ERROR (write 1 = clear).
-- [x] **Seconds.** SECONDS is at BASE+1 and the alarm has its own seconds register at BASE+3.
-- [ ] **Alarm seconds and firing.** The behavior spec above fires at `HHMM:00` on the minute tick. With ALARM_SEC the compare must include seconds, which changes `alarm_ctrl` and its ports.
+- [x] **Register map.** Final 16-register map at `0x070`-`0x07F` (above).
+- [x] **Multiple alarms.** Six, at `0x074`-`0x07F`, each with an EN/RESET bit pair in Alarm Settings. No alarm select. `alarm_clock_io` creates one `alarm_ctrl` per alarm.
+- [x] **Status bits.** Per-alarm RINGING on the read side of Alarm Settings; ANY_RINGING and ERROR on the read side of Global Control.
+- [x] **Clearing ERROR.** Write 1 to Global Control bit 3.
+- [x] **Alarm seconds.** Each alarm compares hours, minutes and seconds. `alarm_ctrl` has `seconds`, `load_alarm_sec` and `alarm_sec` ports for this.
+- [x] **Fast-mode ratio.** Solved: `clock_divider` keeps the remainder (phase accumulator), so fast mode is exact on average.
 - [ ] **Consistent TIME and SECONDS reads.** Two `IN`s can straddle a rollover. Snapshot seconds when TIME is read?
-- [ ] **Fast-mode ratio.** 10 MHz does not divide evenly by 60. Accept the small error or choose another ratio?
 - [ ] **Timeout in fast mode.** The 60-second timeout counts simulated seconds, so in fast mode a ring lasts 1 real second. Keep, or time it in real seconds?
-- [ ] **Setting the time while ringing or snoozed.** Keep ringing, stop, or cancel the snooze?
-- [ ] **Changing the alarm or clearing EN while ringing.** Does clearing EN silence the alarm?
-- [x] **Clearing ERROR.** Write 1 to STATUS bit 1.
-- [ ] **Alarm reset value.** `0x0000` with EN = 0?
+- [ ] **Setting the time while ringing.** Keep ringing or stop?
+- [ ] **Changing an alarm or clearing EN while ringing.** Does clearing EN silence the alarm?
+- [ ] **Alarm reset value.** `0x0000` / `0x00` with EN = 0?
 - [ ] **Does writing TIME restart the 1 Hz divider** so the first second is a full second?
-- [ ] **Snooze.** In or out of scope? The current map has no SNOOZE bit. Refire by counting 5 minute rollovers, or by adding 5 minutes to the alarm?
-- [ ] **Multiple alarms.** How many, and what goes in ALARM_SET (BASE+7)? Needs `alarm_ctrl` changes.
-- [ ] **RINGING output pin.** LED only, or a buzzer on a GPIO pin?
+- [ ] **Snooze.** Out of the final map (no SNOOZE bit); `alarm_ctrl`'s `snooze` input is tied to 0.
+- [ ] **RINGING output pin.** LED only, or a buzzer on a GPIO pin? DIG_OUT already drives the LEDs.

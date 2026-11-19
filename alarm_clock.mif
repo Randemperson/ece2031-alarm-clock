@@ -1,43 +1,54 @@
-WIDTH=16;
-DEPTH=2048;
+-- Altera Memory Initialization File (MIF)
 
-ADDRESS_RADIX=HEX;
-DATA_RADIX=HEX;
+DEPTH = 2048;
+WIDTH = 16;
 
-CONTENT BEGIN
-0000: 0817; --     LOAD   Time0659
-0001: 98A0; --     OUT    AC_Time
-0002: 0818; --     LOAD   Time0700
-0003: 98A2; --     OUT    AC_Alarm
-0004: 0819; --     LOAD   CtrlEnFast
-0005: 98A3; --     OUT    AC_Ctrl
-0006: 90A0; --     IN     AC_Time
-0007: 9804; --     OUT    Hex0
-0008: 90A1; --     IN     AC_Sec
-0009: 9805; --     OUT    Hex1
-000A: 90A3; --     IN     AC_Ctrl
-000B: 381C; --     AND    StRinging
-000C: 7006; --     JZERO  Poll
-000D: 081F; --     LOAD   AllLEDs
-000E: 9801; --     OUT    LEDs
-000F: 9000; --     IN     Switches
-0010: 3820; --     AND    SwitchMask
-0011: 700F; --     JZERO  WaitForSwitch
-0012: 081A; --     LOAD   CtrlAck
-0013: 98A3; --     OUT    AC_Ctrl
-0014: 1800; --     LOADI  0
-0015: 9801; --     OUT    LEDs
-0016: 5816; --     JUMP   Done
-0017: 0659; -- Time0659:    DW &amp;H0659
-0018: 0700; -- Time0700:    DW &amp;H0700
-0019: 0003; -- CtrlEnFast:  DW &amp;B0011
-001A: 0007; -- CtrlAck:     DW &amp;B0111
-001B: 000B; -- CtrlSnooze:  DW &amp;B1011
-001C: 0001; -- StRinging:   DW &amp;B00001
-001D: 0008; -- StSnoozed:   DW &amp;B01000
-001E: 0010; -- StInvalid:   DW &amp;B10000
-001F: 03FF; -- AllLEDs:     DW &amp;B1111111111
-0020: 0001; -- SwitchMask:  DW &amp;H0001
-[0021..07FF] : 0000; -- [empty memory]
+ADDRESS_RADIX = HEX;
+DATA_RADIX = HEX;
+
+CONTENT
+  BEGIN
+    [000..7FF] : 0000;  -- Default to NOP
+
+            000 : 081D;  -- LOAD   Time0659
+            001 : 9870;  -- OUT    AC_Time          ; also resets seconds to 00
+            002 : 081E;  -- LOAD   Time0700
+            003 : 9874;  -- OUT    AC_Alarm1        ; alarm 1 hours/minutes
+            004 : 1800;  -- LOADI  0
+            005 : 9875;  -- OUT    AC_Alarm1Sec     ; alarm 1 seconds = 00
+            006 : 0824;  -- LOAD   SetEnA1
+            007 : 9873;  -- OUT    AC_AlarmSet      ; enable alarm 1 (all other alarms off)
+            008 : 081F;  -- LOAD   GEnFast
+            009 : 9872;  -- OUT    AC_GCtrl         ; global enable + fast mode
+            00A : 9070;  -- IN     AC_Time
+            00B : 9804;  -- OUT    Hex0
+            00C : 9071;  -- IN     AC_Sec
+            00D : 9805;  -- OUT    Hex1
+            00E : 9072;  -- IN     AC_GCtrl         ; read side of Global Control has ANY_RINGING
+            00F : 3822;  -- AND    GAnyRinging
+            010 : 700A;  -- JZERO  Poll
+            011 : 0827;  -- LOAD   AllLEDs
+            012 : 9801;  -- OUT    LEDs
+            013 : 9000;  -- IN     Switches
+            014 : 3828;  -- AND    SwitchMask
+            015 : 7013;  -- JZERO  WaitForSwitch
+            016 : 9073;  -- IN     AC_AlarmSet
+            017 : 3826;  -- AND    EnMask
+            018 : 4025;  -- OR     ResetA1
+            019 : 9873;  -- OUT    AC_AlarmSet
+            01A : 1800;  -- LOADI  0
+            01B : 9801;  -- OUT    LEDs
+            01C : 581C;  -- JUMP   Done
+            01D : 0659;  -- Time0659:    DW &H0659
+            01E : 0700;  -- Time0700:    DW &H0700
+            01F : 0005;  -- GEnFast:     DW &B0101
+            020 : 0007;  -- GResetKeep:  DW &B0111
+            021 : 000D;  -- GClearKeep:  DW &B1101
+            022 : 0002;  -- GAnyRinging: DW &B0010
+            023 : 0008;  -- GError:      DW &B1000
+            024 : 0001;  -- SetEnA1:     DW &H0001
+            025 : 0002;  -- ResetA1:     DW &H0002
+            026 : 0555;  -- EnMask:      DW &H0555      ; all six EN bits
+            027 : 03FF;  -- AllLEDs:     DW &B1111111111
+            028 : 0001;  -- SwitchMask:  DW &H0001
 END;
-

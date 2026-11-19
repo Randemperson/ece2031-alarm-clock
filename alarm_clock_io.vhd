@@ -4,17 +4,35 @@
 -- The SCOMP-facing alarm clock peripheral. This is the block that goes on the
 -- top-level schematic. Bus ports copy TIMER.vhd from the Lab 8 base project.
 --
---   BASE+0  TIME       HHMM (BCD)          BASE+4  STATUS
---   BASE+1  SECONDS    00SS (BCD)          BASE+5  CONTROL
---   BASE+2  ALARM      HHMM (BCD)          BASE+6  ALARM_SEL
---   BASE+3  ALARM_SEC  00SS (BCD)          BASE+7  ALARM_SET
+-- Register map (final). BASE = 0x070; registers 0x070-0x07F (all 16).
 --
---   STATUS  read:  0 RINGING            1 ERROR (an invalid time write was ignored)
---           write: 0 RESET (1 = stop a ringing alarm, one-time)
---                  1 CLEAR_ERR (1 = clear ERROR, one-time)
---   CONTROL bits:  0 EN (global enable, level)   1 FAST (level)
---   ALARM_SEL:     bits 1-0 pick the alarm that BASE+2, BASE+3, BASE+7 refer to
---   ALARM_SET:     TBD (spec text incomplete). Writes ignored, reads 0.
+--   0x070  TIME            HHMM (BCD)
+--   0x071  SECONDS         00SS (BCD)
+--   0x072  GLOBAL CONTROL  write: b0 EN, b1 RESET, b2 FAST, b3 CLEAR_ERR
+--                          read:  b0 EN, b1 ANY_RINGING, b2 FAST, b3 ERROR
+--   0x073  ALARM SETTINGS  one bit pair per alarm, alarm n (1-6) at bits
+--                          2(n-1) and 2(n-1)+1:
+--                          write: b[2(n-1)] EN, b[2(n-1)+1] RESET
+--                          read:  b[2(n-1)] EN, b[2(n-1)+1] RINGING
+--   0x074  ALARM 1 HHMM    0x075  ALARM 1 SECONDS
+--   0x076  ALARM 2 HHMM    0x077  ALARM 2 SECONDS
+--   0x078  ALARM 3 HHMM    0x079  ALARM 3 SECONDS
+--   0x07A  ALARM 4 HHMM    0x07B  ALARM 4 SECONDS
+--   0x07C  ALARM 5 HHMM    0x07D  ALARM 5 SECONDS
+--   0x07E  ALARM 6 HHMM    0x07F  ALARM 6 SECONDS
+--
+--   EN bits and FAST are levels: every write sets them. RESET and CLEAR_ERR
+--   are one-time actions. Global RESET stops every ringing alarm; a RESET bit
+--   in Alarm Settings stops only that alarm. An alarm can fire only when both
+--   the global EN and its own EN are 1.
+--   Invalid BCD time writes are ignored and set ERROR.
+--
+--   Read-modify-write warning: reading Alarm Settings returns RINGING in the
+--   RESET positions. To reset one alarm without touching the others, a
+--   program must AND what it read with 0x0555 (EN bits only) before ORing in
+--   the RESET bit, or it resets every alarm that is ringing.
+--
+-- Inside this file alarms are numbered 0-5 (alarm 1 = index 0).
 --
 -- Bus timing, taken from SCOMP.vhd (assumes CLOCK is the same clk_10MHz that
 -- SCOMP runs on):
@@ -33,7 +51,7 @@ entity alarm_clock_io is
 	generic (
 		CLK_HZ    : positive := 10_000_000;
 		-- 0x070. The course allows peripherals only at 0x070-0x07F, and the
-		-- base must be a multiple of 8 (see the address decode below).
+		-- base must be a multiple of 16 (see the address decode below).
 		BASE_ADDR : std_logic_vector(10 downto 0) := "00001110000"
 	);
 	port (
@@ -43,35 +61,31 @@ entity alarm_clock_io is
 		IO_READ  : in    std_logic;
 		IO_WRITE : in    std_logic;
 		IO_DATA  : inout std_logic_vector(15 downto 0);
-		RINGING  : out   std_logic  -- wire to an LED (or buzzer pin) on the top level
+		RINGING  : out   std_logic  -- 1 while any alarm is ringing
 	);
 end alarm_clock_io;
 
 architecture rtl of alarm_clock_io is
 
-	-- Register numbers: the low 3 bits of the IO address.
-	constant REG_TIME      : std_logic_vector(2 downto 0) := "000";
-	constant REG_SECONDS   : std_logic_vector(2 downto 0) := "001";
-	constant REG_ALARM     : std_logic_vector(2 downto 0) := "010";
-	constant REG_ALARM_SEC : std_logic_vector(2 downto 0) := "011";
-	constant REG_STATUS    : std_logic_vector(2 downto 0) := "100";
-	constant REG_CONTROL   : std_logic_vector(2 downto 0) := "101";
-	constant REG_ALARM_SEL : std_logic_vector(2 downto 0) := "110";
-	constant REG_ALARM_SET : std_logic_vector(2 downto 0) := "111";
+	constant NUM_ALARMS : natural := 6;
 
-	-- STATUS bit positions. Reading gives RINGING/ERROR; writing a 1 to the
-	-- same bit resets the alarm / clears the error.
-	constant STAT_RINGING   : natural := 0;
-	constant STAT_ERROR     : natural := 1;
-	constant STAT_RESET     : natural := 0;
-	constant STAT_CLEAR_ERR : natural := 1;
+	-- Register numbers: the low 4 bits of the IO address.
+	constant R_TIME      : natural := 0;
+	constant R_SECONDS   : natural := 1;
+	constant R_GCTRL     : natural := 2;
+	constant R_ALARM_SET : natural := 3;
+	constant R_ALARM0    : natural := 4;   -- alarm index i: HHMM at 4+2i, seconds at 5+2i
+	constant R_LAST      : natural := R_ALARM0 + 2*NUM_ALARMS - 1;  -- 15 (0x07F)
 
-	-- CONTROL bit positions.
-	constant CTRL_ENABLE    : natural := 0;
-	constant CTRL_FAST      : natural := 1;
+	-- GLOBAL CONTROL bit positions.
+	constant G_EN          : natural := 0;  -- read and write
+	constant G_RESET       : natural := 1;  -- write
+	constant G_ANY_RINGING : natural := 1;  -- read
+	constant G_FAST        : natural := 2;  -- read and write
+	constant G_CLEAR_ERR   : natural := 3;  -- write
+	constant G_ERROR       : natural := 3;  -- read
 
-	-- Width of ALARM_SEL (2 bits = up to 4 alarms).
-	constant SEL_BITS       : natural := 2;
+	-- ALARM SETTINGS: alarm index i uses bit 2i (EN) and bit 2i+1 (RESET / RINGING).
 
 	-- True when d is a valid 24-hour BCD time, 0x0000 to 0x2359.
 	function valid_hhmm(d : std_logic_vector(15 downto 0)) return boolean is
@@ -93,38 +107,68 @@ architecture rtl of alarm_clock_io is
 		return d(15 downto 8) = x"00" and s_tens <= 5 and s_ones <= 9;
 	end function;
 
+	-- Which registers belong to the per-alarm block, and which alarm.
+	function is_alarm_hhmm(n : natural) return boolean is
+	begin
+		return n >= R_ALARM0 and n <= R_LAST and (n - R_ALARM0) mod 2 = 0;
+	end function;
+
+	function is_alarm_sec(n : natural) return boolean is
+	begin
+		return n >= R_ALARM0 and n <= R_LAST and (n - R_ALARM0) mod 2 = 1;
+	end function;
+
+	function alarm_index(n : natural) return natural is
+	begin
+		return (n - R_ALARM0) / 2;
+	end function;
+
+	type hhmm_array is array (0 to NUM_ALARMS-1) of std_logic_vector(15 downto 0);
+	type sec_array  is array (0 to NUM_ALARMS-1) of std_logic_vector(7 downto 0);
+
 	-- Address decode.
 	signal selected : std_logic;                     -- the address is one of ours
-	signal reg      : std_logic_vector(2 downto 0);  -- which register
+	signal reg_n    : natural range 0 to 15;         -- which register
 	signal wr, rd   : std_logic;                     -- a write / read to us, this cycle
 
-	-- Connections to the sub-modules.
-	signal tick, minute_tick      : std_logic;
-	signal hhmm, alarm_hhmm       : std_logic_vector(15 downto 0);
-	signal seconds                : std_logic_vector(7 downto 0);
-	signal ring_i, snoozed        : std_logic;
-	signal load_hhmm, load_sec    : std_logic;
-	signal load_alarm             : std_logic;
-	signal ack, snooze            : std_logic;
+	-- Clock and time.
+	signal tick, minute_tick : std_logic;
+	signal hhmm              : std_logic_vector(15 downto 0);
+	signal seconds           : std_logic_vector(7 downto 0);
+	signal load_hhmm         : std_logic;
+	signal load_sec          : std_logic;
+
+	-- Per-alarm connections (index = alarm number - 1).
+	signal load_alarm     : std_logic_vector(0 to NUM_ALARMS-1);
+	signal load_alarm_sec : std_logic_vector(0 to NUM_ALARMS-1);
+	signal ack_a          : std_logic_vector(0 to NUM_ALARMS-1);
+	signal en_a           : std_logic_vector(0 to NUM_ALARMS-1);
+	signal ring_a         : std_logic_vector(0 to NUM_ALARMS-1);
+	signal snoozed_a      : std_logic_vector(0 to NUM_ALARMS-1);
+	signal alarm_hhmm_a   : hhmm_array;
+	signal alarm_sec_a    : sec_array;
+	signal any_ring       : std_logic;
 
 	-- Registers that live in this file.
-	signal en_reg, fast_reg       : std_logic;
-	signal error_reg              : std_logic;
-	signal alarm_sec_reg          : std_logic_vector(7 downto 0);
-	signal alarm_sel_reg          : std_logic_vector(SEL_BITS-1 downto 0);
+	signal gen_reg        : std_logic;                               -- global EN
+	signal fast_reg       : std_logic;
+	signal error_reg      : std_logic;
+	signal alarm_en       : std_logic_vector(0 to NUM_ALARMS-1);     -- per-alarm EN
 
-	signal read_data              : std_logic_vector(15 downto 0);
-	signal drive_bus              : std_logic;
+	signal global_reset   : std_logic;
+	signal write_invalid  : std_logic;
+	signal read_data      : std_logic_vector(15 downto 0);
+	signal drive_bus      : std_logic;
 
 begin
 
 	-- ------------------------------------------------------------------
 	-- Address decode
 	-- ------------------------------------------------------------------
-	-- The upper 8 address bits pick the peripheral, the low 3 pick the
-	-- register. This is why BASE_ADDR must be a multiple of 8.
-	selected <= '1' when IO_ADDR(10 downto 3) = BASE_ADDR(10 downto 3) else '0';
-	reg      <= IO_ADDR(2 downto 0);
+	-- The upper 7 address bits pick the peripheral, the low 4 pick the
+	-- register. This is why BASE_ADDR must be a multiple of 16.
+	selected <= '1' when IO_ADDR(10 downto 4) = BASE_ADDR(10 downto 4) else '0';
+	reg_n    <= to_integer(unsigned(IO_ADDR(3 downto 0)));
 	wr       <= selected and IO_WRITE;
 	rd       <= selected and IO_READ;
 
@@ -136,16 +180,16 @@ begin
 	-- wired to their load_data) on the clock edge that ends that cycle.
 	-- An invalid BCD value never produces a load pulse, so time_counter and
 	-- alarm_ctrl can trust load_data.
-	-- ("and" on booleans short-circuits, so the valid_* functions only look
-	-- at IO_DATA while a write is actually happening.)
-	load_hhmm  <= '1' when wr = '1' and reg = REG_TIME    and valid_hhmm(IO_DATA) else '0';
-	load_sec   <= '1' when wr = '1' and reg = REG_SECONDS and valid_sec(IO_DATA)  else '0';
-	load_alarm <= '1' when wr = '1' and reg = REG_ALARM   and valid_hhmm(IO_DATA) else '0';
+	load_hhmm    <= '1' when wr = '1' and reg_n = R_TIME    and valid_hhmm(IO_DATA) else '0';
+	load_sec     <= '1' when wr = '1' and reg_n = R_SECONDS and valid_sec(IO_DATA)  else '0';
 
-	ack        <= '1' when wr = '1' and reg = REG_STATUS and IO_DATA(STAT_RESET) = '1' else '0';
+	global_reset <= '1' when wr = '1' and reg_n = R_GCTRL and IO_DATA(G_RESET) = '1' else '0';
 
-	-- TODO: the current map has no SNOOZE bit. Tied off until we decide to use SNOOZE
-	snooze     <= '0';
+	-- Any time write that will be ignored because its value is invalid.
+	write_invalid <= '1' when wr = '1' and (
+	                     ((reg_n = R_TIME    or is_alarm_hhmm(reg_n)) and not valid_hhmm(IO_DATA)) or
+	                     ((reg_n = R_SECONDS or is_alarm_sec(reg_n))  and not valid_sec(IO_DATA))
+	                 ) else '0';
 
 	-- ------------------------------------------------------------------
 	-- Writes: registers that live in this file
@@ -153,53 +197,36 @@ begin
 	process (CLOCK, RESETN)
 	begin
 		if RESETN = '0' then
-			en_reg        <= '0';
-			fast_reg      <= '0';
-			error_reg     <= '0';
-			alarm_sec_reg <= (others => '0');
-			alarm_sel_reg <= (others => '0');
+			gen_reg   <= '0';
+			fast_reg  <= '0';
+			error_reg <= '0';
+			alarm_en  <= (others => '0');
 		elsif rising_edge(CLOCK) then
+			if write_invalid = '1' then
+				error_reg <= '1';
+			end if;
+
 			if wr = '1' then
-				case reg is
+				case reg_n is
 
-					-- TIME, SECONDS, ALARM: the value itself is stored in a
-					-- sub-module (see the load pulses above). Here we only
-					-- record whether the write was rejected.
-					when REG_TIME | REG_ALARM =>
-						if not valid_hhmm(IO_DATA) then
-							error_reg <= '1';
-						end if;
-
-					when REG_SECONDS =>
-						if not valid_sec(IO_DATA) then
-							error_reg <= '1';
-						end if;
-
-					when REG_ALARM_SEC =>
-						if valid_sec(IO_DATA) then
-							alarm_sec_reg <= IO_DATA(7 downto 0);
-						else
-							error_reg <= '1';
-						end if;
-
-					-- RESET is handled by the ack pulse above. CLEAR_ERR is handled here.
-					when REG_STATUS =>
-						if IO_DATA(STAT_CLEAR_ERR) = '1' then
+					-- EN and FAST are levels: every write sets them.
+					-- RESET is the global_reset pulse above.
+					when R_GCTRL =>
+						gen_reg  <= IO_DATA(G_EN);
+						fast_reg <= IO_DATA(G_FAST);
+						if IO_DATA(G_CLEAR_ERR) = '1' then
 							error_reg <= '0';
 						end if;
 
-					-- EN and FAST are levels: every CONTROL write sets them.
-					when REG_CONTROL =>
-						en_reg   <= IO_DATA(CTRL_ENABLE);
-						fast_reg <= IO_DATA(CTRL_FAST);
+					-- Every alarm's EN is a level: one write sets all six.
+					-- The RESET bits are the ack pulses below.
+					when R_ALARM_SET =>
+						for i in 0 to NUM_ALARMS-1 loop
+							alarm_en(i) <= IO_DATA(2*i);
+						end loop;
 
-					-- TODO (needs agreement with the Alarm Logic owner):
-					--       alarm_ctrl holds only one alarm, so the selection is
-					--       stored and read back but does not pick an alarm yet.
-					when REG_ALARM_SEL =>
-						alarm_sel_reg <= IO_DATA(SEL_BITS-1 downto 0);
-
-					-- TODO: ALARM_SET fields are not defined yet. Writes ignored.
+					-- TIME, SECONDS and the alarm times are stored in the
+					-- sub-modules (load pulses).
 					when others =>
 						null;
 
@@ -211,37 +238,43 @@ begin
 	-- ------------------------------------------------------------------
 	-- Reads
 	-- ------------------------------------------------------------------
-	process (reg, hhmm, seconds, alarm_hhmm, alarm_sec_reg, alarm_sel_reg, ring_i, error_reg, en_reg, fast_reg)
+	any_ring <= '0' when ring_a = (ring_a'range => '0') else '1';
+
+	process (reg_n, hhmm, seconds, gen_reg, fast_reg, alarm_en, ring_a, any_ring,
+	         error_reg, alarm_hhmm_a, alarm_sec_a)
 	begin
 		read_data <= (others => '0');
-		case reg is
-			when REG_TIME      => read_data <= hhmm;
-			when REG_SECONDS   => read_data(7 downto 0) <= seconds;
-			when REG_ALARM     => read_data <= alarm_hhmm;
-			when REG_ALARM_SEC => read_data(7 downto 0) <= alarm_sec_reg;
-			when REG_STATUS    =>
-				read_data(STAT_RINGING) <= ring_i;
-				read_data(STAT_ERROR)   <= error_reg;
-			when REG_CONTROL   =>
-				read_data(CTRL_ENABLE) <= en_reg;
-				read_data(CTRL_FAST)   <= fast_reg;
-			when REG_ALARM_SEL =>
-				read_data(SEL_BITS-1 downto 0) <= alarm_sel_reg;
-			when others        => null;   -- ALARM_SET: reads 0 until defined
+		case reg_n is
+			when R_TIME      => read_data <= hhmm;
+			when R_SECONDS   => read_data(7 downto 0) <= seconds;
+			when R_GCTRL     =>
+				read_data(G_EN)          <= gen_reg;
+				read_data(G_ANY_RINGING) <= any_ring;
+				read_data(G_FAST)        <= fast_reg;
+				read_data(G_ERROR)       <= error_reg;
+			when R_ALARM_SET =>
+				for i in 0 to NUM_ALARMS-1 loop
+					read_data(2*i)     <= alarm_en(i);
+					read_data(2*i + 1) <= ring_a(i);
+				end loop;
+			when others      =>
+				if is_alarm_hhmm(reg_n) then
+					read_data <= alarm_hhmm_a(alarm_index(reg_n));
+				elsif is_alarm_sec(reg_n) then
+					read_data(7 downto 0) <= alarm_sec_a(alarm_index(reg_n));
+				end if;
 		end case;
 	end process;
 
-	-- Drive the bus only while SCOMP is reading one of our eight registers.
-	-- At every other time the peripheral must be disconnected ('Z'), or it
-	-- would fight with SCOMP and the other devices on the shared bus.
-	drive_bus <= rd;
+	-- Drive the bus only while SCOMP is reading one of our registers
+	-- (all of 0x070-0x07F). At every other time the peripheral must be
+	-- disconnected ('Z'), or it would fight with SCOMP and the other devices
+	-- on the shared bus.
+	drive_bus <= '1' when rd = '1' and reg_n <= R_LAST else '0';
 	IO_DATA   <= read_data when drive_bus = '1' else (others => 'Z');
 
-	RINGING <= ring_i;
+	RINGING <= any_ring;
 
-	-- TODO (needs agreement with the Alarm Logic owner): alarm_sec_reg is
-	--       stored and can be read back, but alarm_ctrl has no seconds port
-	--       yet, so the alarm still compares hours and minutes only.
 	-- TODO (decision pending): reading TIME then SECONDS takes two INs and can
 	--       straddle a rollover. Snapshot seconds when TIME is read?
 
@@ -259,12 +292,34 @@ begin
 			hhmm => hhmm, seconds => seconds, minute_tick => minute_tick
 		);
 
-	u_alarm : entity work.alarm_ctrl
-		port map (
-			clock => CLOCK, resetn => RESETN, tick => tick, minute_tick => minute_tick,
-			hhmm => hhmm, load_alarm => load_alarm, load_data => IO_DATA,
-			time_set => load_hhmm, en => en_reg, ack => ack, snooze => snooze,
-			alarm_hhmm => alarm_hhmm, ringing => ring_i, snoozed => snoozed
-		);
+	-- One alarm_ctrl per alarm (index i = alarm i+1).
+	g_alarms : for i in 0 to NUM_ALARMS-1 generate
+
+		load_alarm(i)     <= '1' when wr = '1' and reg_n = R_ALARM0 + 2*i
+		                                 and valid_hhmm(IO_DATA) else '0';
+		load_alarm_sec(i) <= '1' when wr = '1' and reg_n = R_ALARM0 + 2*i + 1
+		                                 and valid_sec(IO_DATA) else '0';
+
+		-- Stopped by the global RESET, or by its own RESET bit.
+		ack_a(i) <= '1' when global_reset = '1'
+		                  or (wr = '1' and reg_n = R_ALARM_SET
+		                      and IO_DATA(2*i + 1) = '1') else '0';
+
+		-- Armed only when both the global EN and its own EN are set.
+		en_a(i)  <= gen_reg and alarm_en(i);
+
+		u_alarm : entity work.alarm_ctrl
+			port map (
+				clock => CLOCK, resetn => RESETN, tick => tick, minute_tick => minute_tick,
+				hhmm => hhmm, seconds => seconds,
+				load_alarm => load_alarm(i), load_alarm_sec => load_alarm_sec(i),
+				load_data => IO_DATA, time_set => load_hhmm,
+				en => en_a(i), ack => ack_a(i),
+				snooze => '0',   -- no SNOOZE bit in the map
+				alarm_hhmm => alarm_hhmm_a(i), alarm_sec => alarm_sec_a(i),
+				ringing => ring_a(i), snoozed => snoozed_a(i)
+			);
+
+	end generate;
 
 end rtl;
