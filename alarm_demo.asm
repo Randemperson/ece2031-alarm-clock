@@ -24,7 +24,7 @@ Poll:
     IN     AC_Sec
     OUT    Hex1
 
-    IN     AC_Ctrl
+    IN     AC_Status
     AND    StRinging
     JZERO  Poll
 
@@ -37,8 +37,8 @@ WaitForSwitch:
     AND    SwitchMask
     JZERO  WaitForSwitch
 
-    LOAD   CtrlAck
-    OUT    AC_Ctrl
+    LOAD   StReset
+    OUT    AC_Status
 
     LOADI  0
     OUT    LEDs
@@ -50,13 +50,15 @@ Done:
 Time0659:    DW &H0659
 Time0700:    DW &H0700
 
-CtrlEnFast:  DW &B0011
-CtrlAck:     DW &B0111
-CtrlSnooze:  DW &B1011
+; CONTROL (BASE+5): bit 0 EN, bit 1 FAST
+CtrlEnFast:  DW &B11
 
-StRinging:   DW &B00001
-StSnoozed:   DW &B01000
-StInvalid:   DW &B10000
+; STATUS (BASE+4) read: bit 0 RINGING, bit 1 ERROR
+StRinging:   DW &B01
+StInvalid:   DW &B10
+; STATUS (BASE+4) write: bit 0 RESET (stop ringing), bit 1 CLEAR_ERR
+StReset:     DW &B01
+StClearErr:  DW &B10
 
 AllLEDs:     DW &B1111111111
 SwitchMask:  DW &H0001
@@ -70,7 +72,12 @@ Hex1:        EQU 005
 
 ; Alarm peripheral I/O addresses
 ; These must match alarm_clock_io.vhd
-AC_Time:     EQU 160
-AC_Sec:      EQU 161
-AC_Alarm:    EQU 162
-AC_Ctrl:     EQU 163
+; BASE = 0x070 (decimal 112). Allowed range is 0x070-0x07F.
+AC_Time:     EQU 112
+AC_Sec:      EQU 113
+AC_Alarm:    EQU 114
+AC_AlarmSec: EQU 115
+AC_Status:   EQU 116
+AC_Ctrl:     EQU 117
+AC_AlarmSel: EQU 118
+AC_AlarmSet: EQU 119
