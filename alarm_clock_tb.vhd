@@ -20,10 +20,17 @@ architecture sim of alarm_clock_tb is
 	constant TB_CLK_HZ  : positive := 120;
 	constant ONE_SEC    : time := CLK_PERIOD * TB_CLK_HZ;
 
-	constant ADDR_TIME  : std_logic_vector(10 downto 0) := "00010100000";  -- BASE+0
-	constant ADDR_SEC   : std_logic_vector(10 downto 0) := "00010100001";  -- BASE+1
-	constant ADDR_ALARM : std_logic_vector(10 downto 0) := "00010100010";  -- BASE+2
-	constant ADDR_CTRL  : std_logic_vector(10 downto 0) := "00010100011";  -- BASE+3
+	-- Final register map (BASE = 0x070). See README.md.
+	constant ADDR_TIME      : std_logic_vector(10 downto 0) := "00001110000";  -- 0x070 TIME
+	constant ADDR_SEC       : std_logic_vector(10 downto 0) := "00001110001";  -- 0x071 SECONDS
+	constant ADDR_GCTRL     : std_logic_vector(10 downto 0) := "00001110010";  -- 0x072 GLOBAL CONTROL
+	constant ADDR_ALARM_SEL : std_logic_vector(10 downto 0) := "00001110011";  -- 0x073 ALARM SELECT
+	constant ADDR_ALARM_SET : std_logic_vector(10 downto 0) := "00001110100";  -- 0x074 ALARM SETTINGS (+ status on read)
+	constant ADDR_ALARM0    : std_logic_vector(10 downto 0) := "00001110101";  -- 0x075 alarm 0 HHMM (alarm i at 0x075 + 2i)
+	constant ADDR_ALARM0_SEC: std_logic_vector(10 downto 0) := "00001110110";  -- 0x076 alarm 0 SECONDS (alarm i at 0x076 + 2i)
+
+	-- GLOBAL CONTROL write bits: b0 EN, b1 RESET, b2 FAST, b3 CLEAR_ERR
+	-- ALARM SETTINGS write: b0 EN, b1 RESET.  read: b0 EN, b1 RINGING, b2 ANY_RINGING, b3 ERROR
 
 	signal clock    : std_logic := '0';
 	signal resetn   : std_logic := '0';
@@ -90,23 +97,30 @@ begin
 
 		-- TODO test 1: rollover. Set 23:59, seconds 0x58, wait 2 * ONE_SEC,
 		--              expect TIME = 0x0000 and SECONDS = 0x00.
-		-- TODO test 2: alarm fires at 00:00. Alarm = 0x0000, EN = 1, let the
-		--              time tick from 23:59:59; expect STATUS bit 0 and the
-		--              RINGING pin to go high.
-		-- TODO test 3: no fire on direct set. Alarm = 0x0700, EN = 1, write
-		--              TIME = 0x0700; expect RINGING to stay low.
+		-- TODO test 2: alarm fires at 00:00:00. Alarm 0 = 0x0000 / 0x00,
+		--              ALARM_SEL = 0, ALARM_SET EN = 1, GCTRL EN = 1, let the
+		--              time tick from 23:59:59; expect ALARM_SET read bit 1
+		--              (RINGING) and bit 2 (ANY_RINGING), and the RINGING pin.
+		-- TODO test 3: no fire on direct set. Alarm 0 = 07:00:00, enabled;
+		--              write TIME = 0x0700; expect RINGING to stay low.
 		-- TODO test 4: set time while ringing (expected result is a pending
 		--              decision; write the test once the spec says).
-		-- TODO test 5: invalid BCD. Write 0x2500, 0x1A30, 0x1260 to TIME and
-		--              ALARM, 0x60 to SECONDS; expect registers unchanged and
-		--              STATUS bit 4 set.
-		-- TODO test 6: ACK. While ringing, write CTRL with bit 2 set (keep EN
-		--              set too); expect RINGING low on the next read.
-		-- TODO test 7: timeout. Let it ring without ACK for 60 * ONE_SEC;
+		-- TODO test 5: invalid writes. 0x2500, 0x1A30, 0x1260 to TIME and an
+		--              alarm HHMM, 0x60 to SECONDS and an alarm SECONDS, 5 to
+		--              ALARM_SEL; expect registers unchanged and ALARM_SET read
+		--              bit 3 (ERROR) set. GCTRL bit 3 (CLEAR_ERR) clears it.
+		-- TODO test 6: RESET. While ringing, write ALARM_SET with bit 1 set
+		--              (keep bit 0 EN); expect that alarm to stop. Then GCTRL
+		--              bit 1 (keep EN and FAST) with two alarms ringing; expect
+		--              both to stop.
+		-- TODO test 7: timeout. Let it ring without RESET for 60 * ONE_SEC;
 		--              expect RINGING to drop on its own.
-		-- TODO test 8 (extension): snooze refires 5 minutes later.
+		-- TODO test 8: EN gating. An alarm fires only when GCTRL EN and its
+		--              own ALARM_SET EN are both 1.
+		-- TODO test 9: two alarms at different times each fire on their own.
 		-- TODO: bus hygiene. io_data must be all 'Z' whenever io_read = '0',
-		--       and reads of addresses outside BASE..BASE+3 must not be driven.
+		--       and reads of 0x07F and addresses outside 0x070-0x07F must not
+		--       be driven.
 
 		report "Testbench finished (no tests implemented yet)" severity note;
 		done <= true;
